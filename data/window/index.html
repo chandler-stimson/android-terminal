@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="resources/xterm/css/xterm.css"/>
+  <link rel="stylesheet" type="text/css" href="index.css">
+  <title>Android Terminal</title>
+</head>
+<body>
+  <div id="windows"></div>
+  <div id="overlay">
+    <button id="connect" title="Ctrl/Command + Shift + O"><u>O</u>pen Terminal</button>
+  </div>
+  <notification-view id="toast"></notification-view>
+
+  <script src="runtime.js"></script>
+  <script src="components/notification-view/notification-view.js"></script>
+  <script src="resources/xterm/lib/xterm.js"></script>
+  <script type="module" src="shell.mjs"></script>
+</body>
+</html>

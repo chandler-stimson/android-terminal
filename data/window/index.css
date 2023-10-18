@@ -1,0 +1,54 @@
+body {
+  font-size: 14px;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+  background-color: #fff;
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+#windows {
+  height: calc(100vh - 20px);
+  padding: 10px;
+  display: grid;
+  grid-gap: 10px;
+  grid-template-rows: repeat(auto-fit, minmax(100px, 1fr));
+  background-color: #000;
+}
+body[data-mode=horizontal] #windows {
+  grid-template-rows: unset;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+}
+#windows:empty::before {
+  color: #fff;
+  content: 'Supported Keyboard Shortcuts: \A -- \A \A Ctrl/Command + Shift + O -> Open Terminal \A Ctrl/Command + Shift + S -> New Terminal (when connected) \A Ctrl/Command + Shift + C -> Take Screenshot (when connected) \A Ctrl/Command + Shift + X -> Pull a File from Device (when connected) \A Ctrl/Command + Shift + Z -> Put Files to Device (when connected)';
+  white-space: pre;
+  font-size: 90%;
+  line-height: 180%;
+}
+
+.cmd {
+  overflow: hidden;
+}
+.cmd:not(:last-child) {
+  border-bottom: solid 1px #3e3e3e;
+}
+body[data-mode=horizontal] .cmd:not(:last-child) {
+  border-bottom: unset;
+  border-right: solid 1px #3e3e3e;
+}
+
+#overlay {
+  position: fixed;
+  inset: 0 0 0 0;
+  display: grid;
+  place-content: center;
+}
+body.ready #overlay {
+  display: none;
+}
+
+#connect {
+  font-size: 150%;
+  cursor: pointer;
+}
