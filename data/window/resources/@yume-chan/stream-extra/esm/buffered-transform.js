@@ -1,4 +1,4 @@
-import { StructEmptyError } from "/data/window/resources/@yume-chan/struct/esm/index.js";
+import { StructEmptyError } from "@yume-chan/struct";
 import { BufferedReadableStream } from "./buffered.js";
 import { PushReadableStream } from "./push-readable.js";
 import { ReadableStream, WritableStream } from "./stream.js";

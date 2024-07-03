@@ -1,4 +1,5 @@
-import { DuplexStreamFactory, ReadableStream } from "/data/window/resources/@yume-chan/stream-extra/esm/index.js";
+import { ReadableStream } from "@yume-chan/stream-extra";
+import { unreachable } from "../../../utils/index.js";
 /**
  * The legacy shell
  *
@@ -20,17 +21,15 @@ export class AdbSubprocessNoneProtocol {
         return new AdbSubprocessNoneProtocol(await adb.createSocket(`exec:${command}`));
     }
     #socket;
-    #duplex;
     // Legacy shell forwards all data to stdin.
     get stdin() {
         return this.#socket.writable;
     }
-    #stdout;
     /**
      * Legacy shell mixes stdout and stderr.
      */
     get stdout() {
-        return this.#stdout;
+        return this.#socket.readable;
     }
     #stderr;
     /**
@@ -45,22 +44,20 @@ export class AdbSubprocessNoneProtocol {
     }
     constructor(socket) {
         this.#socket = socket;
-        // Link `stdout`, `stderr` and `stdin` together,
-        // so closing any of them will close the others.
-        this.#duplex = new DuplexStreamFactory({
-            close: async () => {
-                await this.#socket.close();
+        this.#stderr = new ReadableStream({
+            start: (controller) => {
+                this.#socket.closed
+                    .then(() => controller.close())
+                    .catch(unreachable);
             },
         });
-        this.#stdout = this.#duplex.wrapReadable(this.#socket.readable);
-        this.#stderr = this.#duplex.wrapReadable(new ReadableStream());
-        this.#exit = this.#duplex.closed.then(() => 0);
+        this.#exit = socket.closed.then(() => 0);
     }
     resize() {
         // Not supported, but don't throw.
     }
-    kill() {
-        return this.#duplex.close();
+    async kill() {
+        await this.#socket.close();
     }
 }
 //# sourceMappingURL=none.js.map

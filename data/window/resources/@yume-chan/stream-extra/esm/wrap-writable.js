@@ -1,21 +1,21 @@
 import { WritableStream } from "./stream.js";
-async function getWrappedWritableStream(wrapper) {
-    if ("start" in wrapper) {
-        return await wrapper.start();
+async function getWrappedWritableStream(start) {
+    if ("start" in start) {
+        return await start.start();
     }
-    else if (typeof wrapper === "function") {
-        return await wrapper();
+    else if (typeof start === "function") {
+        return await start();
     }
     else {
         // Can't use `wrapper instanceof WritableStream`
         // Because we want to be compatible with any WritableStream-like objects
-        return wrapper;
+        return start;
     }
 }
 export class WrapWritableStream extends WritableStream {
     writable;
     #writer;
-    constructor(wrapper) {
+    constructor(start) {
         super({
             start: async () => {
                 // `start` is invoked before `ReadableStream`'s constructor finish,
@@ -23,7 +23,7 @@ export class WrapWritableStream extends WritableStream {
                 // "Must call super constructor in derived class before accessing 'this' or returning from derived constructor".
                 // Queue a microtask to avoid this.
                 await Promise.resolve();
-                this.writable = await getWrappedWritableStream(wrapper);
+                this.writable = await getWrappedWritableStream(start);
                 this.#writer = this.writable.getWriter();
             },
             write: async (chunk) => {
@@ -31,8 +31,8 @@ export class WrapWritableStream extends WritableStream {
             },
             abort: async (reason) => {
                 await this.#writer.abort(reason);
-                if ("close" in wrapper) {
-                    await wrapper.close?.();
+                if (start !== this.writable && "close" in start) {
+                    await start.close?.();
                 }
             },
             close: async () => {
@@ -41,8 +41,8 @@ export class WrapWritableStream extends WritableStream {
                 // closing the outer stream first will make the inner stream incapable of
                 // sending data in its `close` handler.
                 await this.#writer.close();
-                if ("close" in wrapper) {
-                    await wrapper.close?.();
+                if (start !== this.writable && "close" in start) {
+                    await start.close?.();
                 }
             },
         });

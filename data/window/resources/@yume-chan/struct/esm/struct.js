@@ -1,6 +1,7 @@
-import { ExactReadableEndedError, STRUCT_VALUE_SYMBOL, StructDefaultOptions, StructValue, } from "./basic/index.js";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { ExactReadableEndedError, STRUCT_VALUE_SYMBOL, StructDefaultOptions, StructValue, isStructValueInit, } from "./basic/index.js";
 import { SyncPromise } from "./sync-promise.js";
-import { BigIntFieldDefinition, BigIntFieldType, FixedLengthBufferLikeFieldDefinition, NumberFieldDefinition, NumberFieldType, StringBufferFieldSubType, Uint8ArrayBufferFieldSubType, VariableLengthBufferLikeFieldDefinition, } from "./types/index.js";
+import { BigIntFieldDefinition, BigIntFieldVariant, FixedLengthBufferLikeFieldDefinition, NumberFieldDefinition, NumberFieldVariant, StringBufferFieldConverter, Uint8ArrayBufferFieldConverter, VariableLengthBufferLikeFieldDefinition, } from "./types/index.js";
 export class StructDeserializeError extends Error {
     constructor(message) {
         super(message);
@@ -59,8 +60,13 @@ export class Struct {
     }
     /**
      * Merges (flats) another `Struct`'s fields and extra fields into this one.
+     *
+     * `other`'s `postDeserialize` will be ignored.
      */
     concat(other) {
+        if (!(other instanceof Struct)) {
+            throw new TypeError("The other value must be a `Struct` instance");
+        }
         for (const field of other.#fields) {
             this.#fields.push(field);
         }
@@ -75,37 +81,37 @@ export class Struct {
      * Appends an `int8` field to the `Struct`
      */
     int8(name, typeScriptType) {
-        return this.#number(name, NumberFieldType.Int8, typeScriptType);
+        return this.#number(name, NumberFieldVariant.Int8, typeScriptType);
     }
     /**
      * Appends an `uint8` field to the `Struct`
      */
     uint8(name, typeScriptType) {
-        return this.#number(name, NumberFieldType.Uint8, typeScriptType);
+        return this.#number(name, NumberFieldVariant.Uint8, typeScriptType);
     }
     /**
      * Appends an `int16` field to the `Struct`
      */
     int16(name, typeScriptType) {
-        return this.#number(name, NumberFieldType.Int16, typeScriptType);
+        return this.#number(name, NumberFieldVariant.Int16, typeScriptType);
     }
     /**
      * Appends an `uint16` field to the `Struct`
      */
     uint16(name, typeScriptType) {
-        return this.#number(name, NumberFieldType.Uint16, typeScriptType);
+        return this.#number(name, NumberFieldVariant.Uint16, typeScriptType);
     }
     /**
      * Appends an `int32` field to the `Struct`
      */
     int32(name, typeScriptType) {
-        return this.#number(name, NumberFieldType.Int32, typeScriptType);
+        return this.#number(name, NumberFieldVariant.Int32, typeScriptType);
     }
     /**
      * Appends an `uint32` field to the `Struct`
      */
     uint32(name, typeScriptType) {
-        return this.#number(name, NumberFieldType.Uint32, typeScriptType);
+        return this.#number(name, NumberFieldVariant.Uint32, typeScriptType);
     }
     #bigint(name, type, typeScriptType) {
         return this.field(name, new BigIntFieldDefinition(type, typeScriptType));
@@ -116,7 +122,7 @@ export class Struct {
      * Requires native `BigInt` support
      */
     int64(name, typeScriptType) {
-        return this.#bigint(name, BigIntFieldType.Int64, typeScriptType);
+        return this.#bigint(name, BigIntFieldVariant.Int64, typeScriptType);
     }
     /**
      * Appends an `uint64` field to the `Struct`
@@ -124,7 +130,7 @@ export class Struct {
      * Requires native `BigInt` support
      */
     uint64(name, typeScriptType) {
-        return this.#bigint(name, BigIntFieldType.Uint64, typeScriptType);
+        return this.#bigint(name, BigIntFieldVariant.Uint64, typeScriptType);
     }
     #arrayBufferLike = (name, type, options) => {
         if ("length" in options) {
@@ -135,10 +141,10 @@ export class Struct {
         }
     };
     uint8Array = (name, options, typeScriptType) => {
-        return this.#arrayBufferLike(name, Uint8ArrayBufferFieldSubType.Instance, options, typeScriptType);
+        return this.#arrayBufferLike(name, Uint8ArrayBufferFieldConverter.Instance, options, typeScriptType);
     };
     string = (name, options, typeScriptType) => {
-        return this.#arrayBufferLike(name, StringBufferFieldSubType.Instance, options, typeScriptType);
+        return this.#arrayBufferLike(name, StringBufferFieldConverter.Instance, options, typeScriptType);
     };
     /**
      * Adds some extra properties into every `Struct` value.
@@ -195,9 +201,15 @@ export class Struct {
         })
             .valueOrPromise();
     }
+    /**
+     * Serialize a struct value to a buffer.
+     * @param init Fields of the struct
+     * @param output The buffer to serialize the struct to. It must be large enough to hold the entire struct. If not provided, a new buffer will be created.
+     * @returns A view of `output` that contains the serialized struct, or a new buffer if `output` is not provided.
+     */
     serialize(init, output) {
         let structValue;
-        if (STRUCT_VALUE_SYMBOL in init) {
+        if (isStructValueInit(init)) {
             structValue = init[STRUCT_VALUE_SYMBOL];
             for (const [key, value] of Object.entries(init)) {
                 const fieldValue = structValue.get(key);
@@ -221,19 +233,20 @@ export class Struct {
             fieldsInfo.push({ fieldValue, size });
             structSize += size;
         }
-        let outputType = "number";
         if (!output) {
             output = new Uint8Array(structSize);
-            outputType = "Uint8Array";
+        }
+        else if (output.length < structSize) {
+            throw new TypeError("Output buffer is too small");
         }
         const dataView = new DataView(output.buffer, output.byteOffset, output.byteLength);
         let offset = 0;
         for (const { fieldValue, size } of fieldsInfo) {
-            fieldValue.serialize(dataView, offset);
+            fieldValue.serialize(dataView, output, offset);
             offset += size;
         }
-        if (outputType === "number") {
-            return structSize;
+        if (output.length !== structSize) {
+            return output.subarray(0, structSize);
         }
         else {
             return output;

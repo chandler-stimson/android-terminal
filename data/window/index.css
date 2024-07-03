@@ -49,6 +49,7 @@ body.ready #overlay {
 }
 
 #connect {
-  font-size: 150%;
+  font-size: 120%;
   cursor: pointer;
+  padding: 20px;
 }

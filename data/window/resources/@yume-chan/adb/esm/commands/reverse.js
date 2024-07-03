@@ -1,8 +1,8 @@
 // cspell: ignore killforward
-import { AutoDisposable } from "/data/window/resources/@yume-chan/event/esm/index.js";
-import { BufferedReadableStream } from "/data/window/resources/@yume-chan/stream-extra/esm/index.js";
-import Struct, { ExactReadableEndedError } from "/data/window/resources/@yume-chan/struct/esm/index.js";
-import { decodeUtf8, hexToNumber } from "../utils/index.js";
+import { AutoDisposable } from "@yume-chan/event";
+import { BufferedReadableStream } from "@yume-chan/stream-extra";
+import Struct, { ExactReadableEndedError, encodeUtf8 } from "@yume-chan/struct";
+import { hexToNumber, sequenceEqual } from "../utils/index.js";
 const AdbReverseStringResponse = new Struct()
     .string("length", { length: 4 })
     .string("content", { lengthField: "length", lengthFieldRadix: 16 });
@@ -21,7 +21,7 @@ const AdbReverseErrorResponse = new Struct()
     .concat(AdbReverseStringResponse)
     .postDeserialize((value) => {
     // https://issuetracker.google.com/issues/37066218
-    // ADB on Android <9 can't create reverse tunnels when connected wirelessly (ADB over WiFi),
+    // ADB on Android <9 can't create reverse tunnels when connected wirelessly (ADB over Wi-Fi),
     // and returns this confusing "more than one device/emulator" error.
     if (value.content === "more than one device/emulator") {
         throw new AdbReverseNotSupportedError();
@@ -30,10 +30,19 @@ const AdbReverseErrorResponse = new Struct()
         throw new AdbReverseError(value.content);
     }
 });
-async function readString(stream, length) {
-    const buffer = await stream.readExactly(length);
-    return decodeUtf8(buffer);
+// Like `hexToNumber`, it's much faster than first converting `buffer` to a string
+function decimalToNumber(buffer) {
+    let value = 0;
+    for (const byte of buffer) {
+        // Like `parseInt`, return when it encounters a non-digit character
+        if (byte < 48 || byte > 57) {
+            return value;
+        }
+        value = value * 10 + byte - 48;
+    }
+    return value;
 }
+const OKAY = encodeUtf8("OKAY");
 export class AdbReverseCommand extends AutoDisposable {
     adb;
     #deviceAddressToLocalAddress = new Map();
@@ -47,8 +56,8 @@ export class AdbReverseCommand extends AutoDisposable {
     }
     async sendRequest(service) {
         const stream = await this.createBufferedStream(service);
-        const success = (await readString(stream, 4)) === "OKAY";
-        if (!success) {
+        const response = await stream.readExactly(4);
+        if (!sequenceEqual(response, OKAY)) {
             await AdbReverseErrorResponse.deserialize(stream);
         }
         return stream;
@@ -56,7 +65,10 @@ export class AdbReverseCommand extends AutoDisposable {
     async list() {
         const stream = await this.createBufferedStream("reverse:list-forward");
         const response = await AdbReverseStringResponse.deserialize(stream);
-        return response.content.split("\n").map((line) => {
+        return response.content
+            .split("\n")
+            .filter((line) => !!line)
+            .map((line) => {
             const [deviceSerial, localName, remoteName] = line.split(" ");
             return { deviceSerial, localName, remoteName };
         });
@@ -76,8 +88,8 @@ export class AdbReverseCommand extends AutoDisposable {
             const position = stream.position;
             try {
                 const length = hexToNumber(await stream.readExactly(4));
-                const port = await readString(stream, length);
-                deviceAddress = `tcp:${Number.parseInt(port, 10)}`;
+                const port = decimalToNumber(await stream.readExactly(length));
+                deviceAddress = `tcp:${port}`;
             }
             catch (e) {
                 if (e instanceof ExactReadableEndedError &&

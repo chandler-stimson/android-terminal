@@ -1,4 +1,4 @@
-import { PromiseResolver } from "/data/window/resources/@yume-chan/async/esm/index.js";
+import { PromiseResolver } from "@yume-chan/async";
 import { WritableStream } from "./stream.js";
 import { WrapReadableStream } from "./wrap-readable.js";
 const NOOP = () => {
@@ -25,7 +25,7 @@ export class DuplexStreamFactory {
     constructor(options) {
         this.#options = options ?? {};
     }
-    wrapReadable(readable) {
+    wrapReadable(readable, strategy) {
         return new WrapReadableStream({
             start: (controller) => {
                 this.#readableControllers.push(controller);
@@ -39,7 +39,7 @@ export class DuplexStreamFactory {
                 // stream end means the remote peer closed the connection first.
                 await this.dispose();
             },
-        });
+        }, strategy);
     }
     createWritable(stream) {
         const writer = stream.getWriter();

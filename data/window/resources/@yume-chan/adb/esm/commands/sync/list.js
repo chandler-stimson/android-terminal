@@ -1,17 +1,15 @@
-import Struct from "/data/window/resources/@yume-chan/struct/esm/index.js";
+import Struct from "@yume-chan/struct";
 import { AdbSyncRequestId, adbSyncWriteRequest } from "./request.js";
 import { AdbSyncResponseId, adbSyncReadResponses } from "./response.js";
-import { AdbSyncLstatResponse, AdbSyncStatResponse } from "./stat.js";
+import { AdbSyncLstatResponse, AdbSyncStatErrorCode, AdbSyncStatResponse, } from "./stat.js";
 export const AdbSyncEntryResponse = new Struct({ littleEndian: true })
     .concat(AdbSyncLstatResponse)
     .uint32("nameLength")
-    .string("name", { lengthField: "nameLength" })
-    .extra({ id: AdbSyncResponseId.Entry });
+    .string("name", { lengthField: "nameLength" });
 export const AdbSyncEntry2Response = new Struct({ littleEndian: true })
     .concat(AdbSyncStatResponse)
     .uint32("nameLength")
-    .string("name", { lengthField: "nameLength" })
-    .extra({ id: AdbSyncResponseId.Entry2 });
+    .string("name", { lengthField: "nameLength" });
 export async function* adbSyncOpenDirV2(socket, path) {
     const locked = await socket.lock();
     try {
@@ -20,7 +18,7 @@ export async function* adbSyncOpenDirV2(socket, path) {
             // `LST2` can return error codes for failed `lstat` calls.
             // `LIST` just ignores them.
             // But they only contain `name` so still pretty useless.
-            if (item.error !== 0) {
+            if (item.error !== AdbSyncStatErrorCode.SUCCESS) {
                 continue;
             }
             yield item;

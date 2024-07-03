@@ -2,20 +2,22 @@ import { StructFieldDefinition, StructFieldValue } from "../../basic/index.js";
 import { SyncPromise } from "../../sync-promise.js";
 import { decodeUtf8, encodeUtf8 } from "../../utils.js";
 /**
- * Base class for all types that
- * can be converted from an `Uint8Array` when deserialized,
- * and need to be converted to an `Uint8Array` when serializing
+ * A converter for buffer-like fields.
+ * It converts `Uint8Array`s to custom-typed values when deserializing,
+ * and convert values back to `Uint8Array`s when serializing.
  *
- * @template TValue The actual TypeScript type of this type
- * @template TTypeScriptType Optional another type (should be compatible with `TType`)
- * specified by user when creating field definitions.
+ * @template TValue The type of the value that the converter converts to/from `Uint8Array`.
+ * @template TTypeScriptType Optionally another type to refine `TValue`.
+ * For example, `TValue` is `string`, and `TTypeScriptType` is `"foo" | "bar"`.
+ * `TValue` is specified by the developer when creating an converter implementation,
+ * `TTypeScriptType` is specified by the user when creating a field.
  */
-export class BufferFieldSubType {
+export class BufferFieldConverter {
     TTypeScriptType;
 }
-/** An `BufferFieldSubType` that's actually an `Uint8Array` */
-export class Uint8ArrayBufferFieldSubType extends BufferFieldSubType {
-    static Instance = new Uint8ArrayBufferFieldSubType();
+/** An identity converter, doesn't convert to anything else. */
+export class Uint8ArrayBufferFieldConverter extends BufferFieldConverter {
+    static Instance = new Uint8ArrayBufferFieldConverter();
     constructor() {
         super();
     }
@@ -26,12 +28,12 @@ export class Uint8ArrayBufferFieldSubType extends BufferFieldSubType {
         return buffer;
     }
     getSize(value) {
-        return value.byteLength;
+        return value.length;
     }
 }
 /** An `BufferFieldSubType` that converts between `Uint8Array` and `string` */
-export class StringBufferFieldSubType extends BufferFieldSubType {
-    static Instance = new StringBufferFieldSubType();
+export class StringBufferFieldConverter extends BufferFieldConverter {
+    static Instance = new StringBufferFieldConverter();
     toBuffer(value) {
         return encodeUtf8(value);
     }
@@ -39,18 +41,17 @@ export class StringBufferFieldSubType extends BufferFieldSubType {
         return decodeUtf8(array);
     }
     getSize() {
-        // Return `-1`, so `BufferLikeFieldDefinition` will
-        // convert this `value` into an `Uint8Array` (and cache the result),
-        // Then get the size from that `Uint8Array`
-        return -1;
+        // See the note in `BufferFieldConverter.getSize`
+        return undefined;
     }
 }
 export const EMPTY_UINT8_ARRAY = new Uint8Array(0);
 export class BufferLikeFieldDefinition extends StructFieldDefinition {
-    type;
-    constructor(type, options) {
+    converter;
+    TTypeScriptType;
+    constructor(converter, options) {
         super(options);
-        this.type = type;
+        this.converter = converter;
     }
     getDeserializeSize(struct) {
         void struct;
@@ -73,7 +74,7 @@ export class BufferLikeFieldDefinition extends StructFieldDefinition {
             }
         })
             .then((array) => {
-            const value = this.type.toValue(array);
+            const value = this.converter.toValue(array);
             return this.create(options, struct, value, array);
         })
             .valueOrPromise();
@@ -91,11 +92,9 @@ export class BufferLikeFieldValue extends StructFieldValue {
         // It will be lazily calculated in `serialize()`
         this.array = undefined;
     }
-    serialize(dataView, offset) {
-        if (!this.array) {
-            this.array = this.definition.type.toBuffer(this.value);
-        }
-        new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength).set(this.array, offset);
+    serialize(dataView, array, offset) {
+        this.array ??= this.definition.converter.toBuffer(this.value);
+        array.set(this.array, offset);
     }
 }
 //# sourceMappingURL=base.js.map

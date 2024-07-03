@@ -1,4 +1,4 @@
-import { AutoDisposable } from "/data/window/resources/@yume-chan/event/esm/index.js";
+import { AutoDisposable } from "@yume-chan/event";
 import { AdbFeature } from "../../features.js";
 import { escapeArg } from "../subprocess/index.js";
 import { adbSyncOpenDir } from "./list.js";
@@ -48,14 +48,13 @@ export class AdbSync extends AutoDisposable {
         super();
         this._adb = adb;
         this._socket = new AdbSyncSocket(socket, adb.maxPayloadSize);
-        this.#supportsStat = adb.supportsFeature(AdbFeature.StatV2);
-        this.#supportsListV2 = adb.supportsFeature(AdbFeature.ListV2);
-        this.#fixedPushMkdir = adb.supportsFeature(AdbFeature.FixedPushMkdir);
-        this.#supportsSendReceiveV2 = adb.supportsFeature(AdbFeature.SendReceiveV2);
+        this.#supportsStat = adb.canUseFeature(AdbFeature.StatV2);
+        this.#supportsListV2 = adb.canUseFeature(AdbFeature.ListV2);
+        this.#fixedPushMkdir = adb.canUseFeature(AdbFeature.FixedPushMkdir);
+        this.#supportsSendReceiveV2 = adb.canUseFeature(AdbFeature.SendReceiveV2);
         // https://android.googlesource.com/platform/packages/modules/adb/+/91768a57b7138166e0a3d11f79cd55909dda7014/client/file_sync_client.cpp#1361
         this.#needPushMkdirWorkaround =
-            this._adb.supportsFeature(AdbFeature.ShellV2) &&
-                !this.fixedPushMkdir;
+            this._adb.canUseFeature(AdbFeature.ShellV2) && !this.fixedPushMkdir;
     }
     /**
      * Gets information of a file or folder.
@@ -116,7 +115,7 @@ export class AdbSync extends AutoDisposable {
      */
     async write(options) {
         if (this.needPushMkdirWorkaround) {
-            // It may fail if the path is already existed.
+            // It may fail if `filename` already exists.
             // Ignore the result.
             // TODO: sync: test push mkdir workaround (need an Android 8 device)
             await this._adb.subprocess.spawnAndWait([
@@ -130,6 +129,9 @@ export class AdbSync extends AutoDisposable {
             socket: this._socket,
             ...options,
         });
+    }
+    lockSocket() {
+        return this._socket.lock();
     }
     async dispose() {
         super.dispose();

@@ -5,12 +5,14 @@ export function placeholder() {
     return undefined;
 }
 const { TextEncoder, TextDecoder } = globalThis;
-const Utf8Encoder = new TextEncoder();
-const Utf8Decoder = new TextDecoder();
+const SharedEncoder = new TextEncoder();
+const SharedDecoder = new TextDecoder();
 export function encodeUtf8(input) {
-    return Utf8Encoder.encode(input);
+    return SharedEncoder.encode(input);
 }
 export function decodeUtf8(buffer) {
-    return Utf8Decoder.decode(buffer);
+    // `TextDecoder` has internal states in stream mode,
+    // but this method is not for stream mode, so the instance can be reused
+    return SharedDecoder.decode(buffer);
 }
 //# sourceMappingURL=utils.js.map

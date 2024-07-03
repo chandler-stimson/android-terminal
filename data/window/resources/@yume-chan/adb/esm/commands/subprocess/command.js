@@ -1,4 +1,4 @@
-import { ConcatStringStream, DecodeUtf8Stream } from "/data/window/resources/@yume-chan/stream-extra/esm/index.js";
+import { ConcatStringStream, TextDecoderStream } from "@yume-chan/stream-extra";
 import { AdbCommandBase } from "../base.js";
 import { AdbSubprocessNoneProtocol, AdbSubprocessShellProtocol, } from "./protocols/index.js";
 const DEFAULT_OPTIONS = {
@@ -61,10 +61,10 @@ export class AdbSubprocess extends AdbCommandBase {
         const process = await this.spawn(command, options);
         const [stdout, stderr, exitCode] = await Promise.all([
             process.stdout
-                .pipeThrough(new DecodeUtf8Stream())
+                .pipeThrough(new TextDecoderStream())
                 .pipeThrough(new ConcatStringStream()),
             process.stderr
-                .pipeThrough(new DecodeUtf8Stream())
+                .pipeThrough(new TextDecoderStream())
                 .pipeThrough(new ConcatStringStream()),
             process.exit,
         ]);

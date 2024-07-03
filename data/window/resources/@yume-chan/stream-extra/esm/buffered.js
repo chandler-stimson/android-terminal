@@ -1,4 +1,4 @@
-import { ExactReadableEndedError } from "/data/window/resources/@yume-chan/struct/esm/index.js";
+import { ExactReadableEndedError } from "@yume-chan/struct";
 import { PushReadableStream } from "./push-readable.js";
 const NOOP = () => {
     // no-op
@@ -22,7 +22,6 @@ export class BufferedReadableStream {
         if (done) {
             throw new ExactReadableEndedError();
         }
-        this.#position += value.byteLength;
         return value;
     }
     async #readAsync(length, initial) {
@@ -31,41 +30,47 @@ export class BufferedReadableStream {
         if (initial) {
             result = new Uint8Array(length);
             result.set(initial);
-            index = initial.byteLength;
-            length -= initial.byteLength;
+            index = initial.length;
+            length -= initial.length;
         }
         else {
             const array = await this.#readSource();
-            if (array.byteLength === length) {
+            if (array.length === length) {
+                this.#position += length;
                 return array;
             }
-            if (array.byteLength > length) {
+            if (array.length > length) {
                 this.#buffered = array;
                 this.#bufferedOffset = length;
-                this.#bufferedLength = array.byteLength - length;
+                this.#bufferedLength = array.length - length;
+                this.#position += length;
                 return array.subarray(0, length);
             }
             result = new Uint8Array(length);
             result.set(array);
-            index = array.byteLength;
-            length -= array.byteLength;
+            index = array.length;
+            length -= array.length;
+            this.#position += array.length;
         }
         while (length > 0) {
             const array = await this.#readSource();
-            if (array.byteLength === length) {
+            if (array.length === length) {
                 result.set(array, index);
+                this.#position += length;
                 return result;
             }
-            if (array.byteLength > length) {
+            if (array.length > length) {
                 this.#buffered = array;
                 this.#bufferedOffset = length;
-                this.#bufferedLength = array.byteLength - length;
+                this.#bufferedLength = array.length - length;
                 result.set(array.subarray(0, length), index);
+                this.#position += length;
                 return result;
             }
             result.set(array, index);
-            index += array.byteLength;
-            length -= array.byteLength;
+            index += array.length;
+            length -= array.length;
+            this.#position += array.length;
         }
         return result;
     }
@@ -84,11 +89,13 @@ export class BufferedReadableStream {
                 // don't use it until absolutely necessary
                 this.#bufferedOffset += length;
                 this.#bufferedLength -= length;
+                this.#position += length;
                 return array.subarray(offset, offset + length);
             }
             this.#buffered = undefined;
             this.#bufferedLength = 0;
             this.#bufferedOffset = 0;
+            this.#position += array.length - offset;
             return this.#readAsync(length, array.subarray(offset));
         }
         return this.#readAsync(length);
@@ -126,8 +133,8 @@ export class BufferedReadableStream {
             return this.stream;
         }
     }
-    cancel(reason) {
-        return this.reader.cancel(reason);
+    async cancel(reason) {
+        await this.reader.cancel(reason);
     }
 }
 //# sourceMappingURL=buffered.js.map

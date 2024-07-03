@@ -1,4 +1,4 @@
-import { ConcatStringStream, DecodeUtf8Stream } from "/data/window/resources/@yume-chan/stream-extra/esm/index.js";
+import { ConcatStringStream, TextDecoderStream } from "@yume-chan/stream-extra";
 import { AdbPower, AdbReverseCommand, AdbSubprocess, AdbSync, AdbTcpIpCommand, escapeArg, framebuffer, } from "./commands/index.js";
 export class Adb {
     transport;
@@ -14,6 +14,12 @@ export class Adb {
     get disconnected() {
         return this.transport.disconnected;
     }
+    get clientFeatures() {
+        return this.transport.clientFeatures;
+    }
+    get deviceFeatures() {
+        return this.banner.features;
+    }
     subprocess;
     power;
     reverse;
@@ -25,8 +31,9 @@ export class Adb {
         this.reverse = new AdbReverseCommand(this);
         this.tcpip = new AdbTcpIpCommand(this);
     }
-    supportsFeature(feature) {
-        return this.banner.features.includes(feature);
+    canUseFeature(feature) {
+        return (this.clientFeatures.includes(feature) &&
+            this.deviceFeatures.includes(feature));
     }
     async createSocket(service) {
         return this.transport.connect(service);
@@ -34,7 +41,7 @@ export class Adb {
     async createSocketAndWait(service) {
         const socket = await this.createSocket(service);
         return await socket.readable
-            .pipeThrough(new DecodeUtf8Stream())
+            .pipeThrough(new TextDecoderStream())
             .pipeThrough(new ConcatStringStream());
     }
     async getProp(key) {

@@ -5,7 +5,7 @@ chrome.action.onClicked.addListener(tab => {
     chrome.runtime.lastError;
     if (r !== 'pong') {
       chrome.tabs.create({
-        url: 'data/window/index.html',
+        url: '/data/window/index.html',
         index: tab.index + 1
       });
     }
@@ -23,6 +23,7 @@ chrome.runtime.onMessage.addListener((request, sender) => {
   }
   else if (request.cmd === 'state') {
     chrome.action.setIcon({
+      tabId: sender.tab.id,
       path: {
         '16': '/data/icons' + (request.active ? '/active' : '') + '/16.png',
         '32': '/data/icons' + (request.active ? '/active' : '') + '/32.png',
@@ -34,6 +35,11 @@ chrome.runtime.onMessage.addListener((request, sender) => {
 
 {
   const once = () => {
+    if (once.done) {
+      return;
+    }
+    once.done = true;
+
     chrome.contextMenus.create({
       id: 'mode',
       title: 'Mode',
@@ -78,7 +84,7 @@ chrome.contextMenus.onClicked.addListener(info => {
         if (reason === 'install' || (prefs.faqs && reason === 'update')) {
           const doUpdate = (Date.now() - prefs['last-update']) / 1000 / 60 / 60 / 24 > 45;
           if (doUpdate && previousVersion !== version) {
-            tabs.query({active: true, currentWindow: true}, tbs => tabs.create({
+            tabs.query({active: true, lastFocusedWindow: true}, tbs => tabs.create({
               url: page + '?version=' + version + (previousVersion ? '&p=' + previousVersion : '') + '&type=' + reason,
               active: reason === 'install',
               ...(tbs && tbs.length && {index: tbs[0].index + 1})

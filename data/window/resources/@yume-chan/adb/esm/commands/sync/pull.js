@@ -1,11 +1,10 @@
-import { PushReadableStream } from "/data/window/resources/@yume-chan/stream-extra/esm/index.js";
-import Struct from "/data/window/resources/@yume-chan/struct/esm/index.js";
+import { PushReadableStream } from "@yume-chan/stream-extra";
+import Struct from "@yume-chan/struct";
 import { AdbSyncRequestId, adbSyncWriteRequest } from "./request.js";
 import { AdbSyncResponseId, adbSyncReadResponses } from "./response.js";
 export const AdbSyncDataResponse = new Struct({ littleEndian: true })
     .uint32("dataLength")
-    .uint8Array("data", { lengthField: "dataLength" })
-    .extra({ id: AdbSyncResponseId.Data });
+    .uint8Array("data", { lengthField: "dataLength" });
 export async function* adbSyncPullGenerator(socket, path) {
     const locked = await socket.lock();
     let done = false;
@@ -15,6 +14,10 @@ export async function* adbSyncPullGenerator(socket, path) {
             yield packet.data;
         }
         done = true;
+    }
+    catch (e) {
+        done = true;
+        throw e;
     }
     finally {
         if (!done) {
@@ -27,6 +30,7 @@ export async function* adbSyncPullGenerator(socket, path) {
     }
 }
 export function adbSyncPull(socket, path) {
+    // TODO: use `ReadableStream.from` when it's supported
     return new PushReadableStream(async (controller) => {
         for await (const data of adbSyncPullGenerator(socket, path)) {
             await controller.enqueue(data);

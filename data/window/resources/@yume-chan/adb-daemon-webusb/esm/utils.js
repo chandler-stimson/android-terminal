@@ -19,6 +19,15 @@ export function findUsbAlternateInterface(device, filters) {
             }
         }
     }
-    throw new Error("No matched alternate interface found");
+    throw new TypeError("No matched alternate interface found");
+}
+function padNumber(value) {
+    return value.toString(16).padStart(4, "0");
+}
+export function getSerialNumber(device) {
+    if (device.serialNumber) {
+        return device.serialNumber;
+    }
+    return padNumber(device.vendorId) + "x" + padNumber(device.productId);
 }
 //# sourceMappingURL=utils.js.map

@@ -1,22 +1,46 @@
-import { PromiseResolver } from "/data/window/resources/@yume-chan/async/esm/index.js";
-import { AbortController, ConsumableWritableStream, WritableStream, } from "/data/window/resources/@yume-chan/stream-extra/esm/index.js";
-import { decodeUtf8, encodeUtf8 } from "/data/window/resources/@yume-chan/struct/esm/index.js";
+import { PromiseResolver } from "@yume-chan/async";
+import { AbortController, Consumable, WritableStream, } from "@yume-chan/stream-extra";
+import { decodeUtf8, encodeUtf8 } from "@yume-chan/struct";
 import { AdbBanner } from "../banner.js";
 import { AdbFeature } from "../features.js";
 import { ADB_DEFAULT_AUTHENTICATORS, AdbAuthenticationProcessor, } from "./auth.js";
 import { AdbPacketDispatcher } from "./dispatcher.js";
 import { AdbCommand, calculateChecksum } from "./packet.js";
 export const ADB_DAEMON_VERSION_OMIT_CHECKSUM = 0x01000001;
+// https://android.googlesource.com/platform/packages/modules/adb/+/79010dc6d5ca7490c493df800d4421730f5466ca/transport.cpp#1252
+// There are some other feature constants, but some of them are only used by ADB server, not devices (daemons).
+export const ADB_DAEMON_DEFAULT_FEATURES = [
+    AdbFeature.ShellV2,
+    AdbFeature.Cmd,
+    AdbFeature.StatV2,
+    AdbFeature.ListV2,
+    AdbFeature.FixedPushMkdir,
+    "apex",
+    AdbFeature.Abb,
+    // only tells the client the symlink timestamp issue in `adb push --sync` has been fixed.
+    // No special handling required.
+    "fixed_push_symlink_timestamp",
+    AdbFeature.AbbExec,
+    "remount_shell",
+    "track_app",
+    AdbFeature.SendReceiveV2,
+    "sendrecv_v2_brotli",
+    "sendrecv_v2_lz4",
+    "sendrecv_v2_zstd",
+    "sendrecv_v2_dry_run_send",
+    AdbFeature.DelayedAck,
+];
+export const ADB_DAEMON_DEFAULT_INITIAL_PAYLOAD_SIZE = 32 * 1024 * 1024;
 export class AdbDaemonTransport {
     /**
      * Authenticates the connection and creates an `AdbDaemonTransport` instance
      * that can be used by `Adb` class.
      *
-     * If an authentication process failed, it's possible to call `authenticate` again
-     * on the same connection. Because every time the device receives a `CNXN` packet,
-     * it resets all internal state, and starts a new authentication process.
+     * If an authentication process failed,
+     * no matter which value the `preserveConnection` option has,
+     * the `connection` is always kept open, so it can be used in another `authenticate` call.
      */
-    static async authenticate({ serial, connection, credentialStore, authenticators = ADB_DEFAULT_AUTHENTICATORS, preserveConnection, }) {
+    static async authenticate({ serial, connection, credentialStore, authenticators = ADB_DEFAULT_AUTHENTICATORS, features = ADB_DAEMON_DEFAULT_FEATURES, initialDelayedAckBytes = ADB_DAEMON_DEFAULT_INITIAL_PAYLOAD_SIZE, ...options }) {
         // Initially, set to highest-supported version and payload size.
         let version = 0x01000001;
         // Android 4: 4K, Android 7: 256K, Android 9: 1M
@@ -55,9 +79,8 @@ export class AdbDaemonTransport {
             signal: abortController.signal,
         })
             .then(() => {
-            if (resolver.state === "running") {
-                resolver.reject(new Error("Connection closed unexpectedly"));
-            }
+            // If `resolver` is already settled, call `reject` won't do anything.
+            resolver.reject(new Error("Connection closed unexpectedly"));
         }, (e) => {
             resolver.reject(e);
         });
@@ -67,39 +90,24 @@ export class AdbDaemonTransport {
             // Because we don't know if the device needs it or not.
             init.checksum = calculateChecksum(init.payload);
             init.magic = init.command ^ 0xffffffff;
-            await ConsumableWritableStream.write(writer, init);
+            await Consumable.WritableStream.write(writer, init);
+        }
+        const actualFeatures = features.slice();
+        if (initialDelayedAckBytes <= 0) {
+            const index = features.indexOf(AdbFeature.DelayedAck);
+            if (index !== -1) {
+                actualFeatures.splice(index, 1);
+            }
         }
         let banner;
         try {
-            // https://android.googlesource.com/platform/packages/modules/adb/+/79010dc6d5ca7490c493df800d4421730f5466ca/transport.cpp#1252
-            // There are some other feature constants, but some of them are only used by ADB server, not devices (daemons).
-            const features = [
-                AdbFeature.ShellV2,
-                AdbFeature.Cmd,
-                AdbFeature.StatV2,
-                AdbFeature.ListV2,
-                AdbFeature.FixedPushMkdir,
-                "apex",
-                AdbFeature.Abb,
-                // only tells the client the symlink timestamp issue in `adb push --sync` has been fixed.
-                // No special handling required.
-                "fixed_push_symlink_timestamp",
-                AdbFeature.AbbExec,
-                "remount_shell",
-                "track_app",
-                AdbFeature.SendReceiveV2,
-                "sendrecv_v2_brotli",
-                "sendrecv_v2_lz4",
-                "sendrecv_v2_zstd",
-                "sendrecv_v2_dry_run_send",
-            ].join(",");
             await sendPacket({
                 command: AdbCommand.Connect,
                 arg0: version,
                 arg1: maxPayloadSize,
                 // The terminating `;` is required in formal definition
                 // But ADB daemon (all versions) can still work without it
-                payload: encodeUtf8(`host::features=${features}`),
+                payload: encodeUtf8(`host::features=${actualFeatures.join(",")}`),
             });
             banner = await resolver.promise;
         }
@@ -117,8 +125,14 @@ export class AdbDaemonTransport {
             version,
             maxPayloadSize,
             banner,
-            preserveConnection,
+            features: actualFeatures,
+            initialDelayedAckBytes,
+            ...options,
         });
+    }
+    #connection;
+    get connection() {
+        return this.#connection;
     }
     #dispatcher;
     #serial;
@@ -129,9 +143,8 @@ export class AdbDaemonTransport {
     get protocolVersion() {
         return this.#protocolVersion;
     }
-    #maxPayloadSize;
     get maxPayloadSize() {
-        return this.#maxPayloadSize;
+        return this.#dispatcher.options.maxPayloadSize;
     }
     #banner;
     get banner() {
@@ -140,9 +153,26 @@ export class AdbDaemonTransport {
     get disconnected() {
         return this.#dispatcher.disconnected;
     }
-    constructor({ serial, connection, version, maxPayloadSize, banner, preserveConnection, }) {
+    #clientFeatures;
+    get clientFeatures() {
+        return this.#clientFeatures;
+    }
+    constructor({ serial, connection, version, banner, features = ADB_DAEMON_DEFAULT_FEATURES, initialDelayedAckBytes, ...options }) {
         this.#serial = serial;
+        this.#connection = connection;
         this.#banner = AdbBanner.parse(banner);
+        this.#clientFeatures = features;
+        if (features.includes(AdbFeature.DelayedAck)) {
+            if (initialDelayedAckBytes <= 0) {
+                throw new TypeError("`initialDelayedAckBytes` must be greater than 0 when DelayedAck feature is enabled.");
+            }
+            if (!this.#banner.features.includes(AdbFeature.DelayedAck)) {
+                initialDelayedAckBytes = 0;
+            }
+        }
+        else {
+            initialDelayedAckBytes = 0;
+        }
         let calculateChecksum;
         let appendNullToServiceString;
         if (version >= ADB_DAEMON_VERSION_OMIT_CHECKSUM) {
@@ -156,11 +186,10 @@ export class AdbDaemonTransport {
         this.#dispatcher = new AdbPacketDispatcher(connection, {
             calculateChecksum,
             appendNullToServiceString,
-            maxPayloadSize,
-            preserveConnection,
+            initialDelayedAckBytes,
+            ...options,
         });
         this.#protocolVersion = version;
-        this.#maxPayloadSize = maxPayloadSize;
     }
     connect(service) {
         return this.#dispatcher.createSocket(service);

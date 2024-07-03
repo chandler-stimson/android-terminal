@@ -1,4 +1,9 @@
 export const STRUCT_VALUE_SYMBOL = Symbol("struct-value");
+export function isStructValueInit(value) {
+    return (typeof value === "object" &&
+        value !== null &&
+        STRUCT_VALUE_SYMBOL in value);
+}
 /**
  * A struct value is a map between keys in a struct and their field values.
  */

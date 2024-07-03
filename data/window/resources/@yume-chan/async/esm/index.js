@@ -1,4 +1,4 @@
-export * from './async-operation-manager.js';
-export * from './delay.js';
-export * from './promise-resolver.js';
+export * from './async-operation-manager';
+export * from './delay';
+export * from './promise-resolver';
 //# sourceMappingURL=index.js.map

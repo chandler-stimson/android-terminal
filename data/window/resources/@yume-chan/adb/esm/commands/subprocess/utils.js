@@ -9,7 +9,7 @@ export function escapeArg(s) {
             break;
         }
         result += s.substring(base, found);
-        // a'b becomes a'\'b
+        // a'b becomes a'\'b (the backslash is not a escape character)
         result += String.raw `'\''`;
         base = found + 1;
     }

@@ -1,5 +1,6 @@
-import { PromiseResolver } from "/data/window/resources/@yume-chan/async/esm/index.js";
-import { ConsumableWritableStream, DistributionStream, DuplexStreamFactory, PushReadableStream, pipeFrom, } from "/data/window/resources/@yume-chan/stream-extra/esm/index.js";
+import { PromiseResolver } from "@yume-chan/async";
+import { MaybeConsumable, PushReadableStream } from "@yume-chan/stream-extra";
+import { EMPTY_UINT8_ARRAY } from "@yume-chan/struct";
 import { AdbCommand } from "./packet.js";
 export class AdbDaemonSocketController {
     #dispatcher;
@@ -7,82 +8,119 @@ export class AdbDaemonSocketController {
     remoteId;
     localCreated;
     service;
-    #duplex;
     #readable;
     #readableController;
     get readable() {
         return this.#readable;
     }
-    #writePromise;
+    #writableController;
     writable;
     #closed = false;
-    /**
-     * Whether the socket is half-closed (i.e. the local side initiated the close).
-     *
-     * It's only used by dispatcher to avoid sending another `CLSE` packet to remote.
-     */
+    #closedPromise = new PromiseResolver();
     get closed() {
-        return this.#closed;
+        return this.#closedPromise.promise;
     }
     #socket;
     get socket() {
         return this.#socket;
     }
+    #availableWriteBytesChanged;
+    /**
+     * When delayed ack is disabled, returns `Infinity` if the socket is ready to write
+     * (exactly one packet can be written no matter how large it is), or `-1` if the socket
+     * is waiting for ack message.
+     *
+     * When delayed ack is enabled, returns a non-negative finite number indicates the number of
+     * bytes that can be written to the socket before waiting for ack message.
+     */
+    #availableWriteBytes = 0;
     constructor(options) {
         this.#dispatcher = options.dispatcher;
         this.localId = options.localId;
         this.remoteId = options.remoteId;
         this.localCreated = options.localCreated;
         this.service = options.service;
-        // Check this image to help you understand the stream graph
-        // cspell: disable-next-line
-        // https://www.plantuml.com/plantuml/png/TL0zoeGm4ErpYc3l5JxyS0yWM6mX5j4C6p4cxcJ25ejttuGX88ZftizxUKmJI275pGhXl0PP_UkfK_CAz5Z2hcWsW9Ny2fdU4C1f5aSchFVxA8vJjlTPRhqZzDQMRB7AklwJ0xXtX0ZSKH1h24ghoKAdGY23FhxC4nS2pDvxzIvxb-8THU0XlEQJ-ZB7SnXTAvc_LhOckhMdLBnbtndpb-SB7a8q2SRD_W00
-        this.#duplex = new DuplexStreamFactory({
-            close: async () => {
-                this.#closed = true;
-                await this.#dispatcher.sendPacket(AdbCommand.Close, this.localId, this.remoteId);
-                // Don't `dispose` here, we need to wait for `CLSE` response packet.
-                return false;
+        this.#readable = new PushReadableStream((controller) => {
+            this.#readableController = controller;
+        });
+        this.writable = new MaybeConsumable.WritableStream({
+            start: (controller) => {
+                this.#writableController = controller;
+                controller.signal.addEventListener("abort", () => {
+                    this.#availableWriteBytesChanged?.reject(controller.signal.reason);
+                });
             },
-            dispose: () => {
-                // Error out the pending writes
-                this.#writePromise?.reject(new Error("Socket closed"));
+            write: async (data) => {
+                const size = data.length;
+                const chunkSize = this.#dispatcher.options.maxPayloadSize;
+                for (let start = 0, end = chunkSize; start < size; start = end, end += chunkSize) {
+                    const chunk = data.subarray(start, end);
+                    await this.#writeChunk(chunk);
+                }
             },
         });
-        this.#readable = this.#duplex.wrapReadable(new PushReadableStream((controller) => {
-            this.#readableController = controller;
-        }, {
-            highWaterMark: options.highWaterMark ?? 16 * 1024,
-            size(chunk) {
-                return chunk.byteLength;
-            },
-        }));
-        this.writable = pipeFrom(this.#duplex.createWritable(new ConsumableWritableStream({
-            write: async (chunk) => {
-                // Wait for an ack packet
-                this.#writePromise = new PromiseResolver();
-                await this.#dispatcher.sendPacket(AdbCommand.Write, this.localId, this.remoteId, chunk);
-                await this.#writePromise.promise;
-            },
-        })), new DistributionStream(this.#dispatcher.options.maxPayloadSize));
         this.#socket = new AdbDaemonSocket(this);
+        this.#availableWriteBytes = options.availableWriteBytes;
+    }
+    async #writeChunk(data) {
+        const length = data.length;
+        while (this.#availableWriteBytes < length) {
+            // Only one lock is required because Web Streams API guarantees
+            // that `write` is not reentrant.
+            const resolver = new PromiseResolver();
+            this.#availableWriteBytesChanged = resolver;
+            await resolver.promise;
+        }
+        if (this.#availableWriteBytes === Infinity) {
+            this.#availableWriteBytes = -1;
+        }
+        else {
+            this.#availableWriteBytes -= length;
+        }
+        await this.#dispatcher.sendPacket(AdbCommand.Write, this.localId, this.remoteId, data);
     }
     async enqueue(data) {
-        // Consumer may abort the `ReadableStream` to close the socket,
-        // it's OK to throw away further packets in this case.
+        // Consumers can `cancel` the `readable` if they are not interested in future data.
+        // Throw away the data if that happens.
         if (this.#readableController.abortSignal.aborted) {
             return;
         }
-        await this.#readableController.enqueue(data);
+        try {
+            await this.#readableController.enqueue(data);
+        }
+        catch (e) {
+            if (this.#readableController.abortSignal.aborted) {
+                return;
+            }
+            throw e;
+        }
     }
-    ack() {
-        this.#writePromise?.resolve();
+    ack(bytes) {
+        this.#availableWriteBytes += bytes;
+        this.#availableWriteBytesChanged?.resolve();
     }
     async close() {
-        await this.#duplex.close();
+        if (this.#closed) {
+            return;
+        }
+        this.#closed = true;
+        this.#availableWriteBytesChanged?.reject(new Error("Socket closed"));
+        try {
+            this.#writableController.error(new Error("Socket closed"));
+        }
+        catch {
+            // ignore
+        }
+        await this.#dispatcher.sendPacket(AdbCommand.Close, this.localId, this.remoteId, EMPTY_UINT8_ARRAY);
     }
     dispose() {
-        return this.#duplex.dispose();
+        try {
+            this.#readableController.close();
+        }
+        catch {
+            // ignore
+        }
+        this.#closedPromise.resolve();
     }
 }
 /**

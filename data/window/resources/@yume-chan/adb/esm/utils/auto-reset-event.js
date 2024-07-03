@@ -1,4 +1,4 @@
-import { PromiseResolver } from "/data/window/resources/@yume-chan/async/esm/index.js";
+import { PromiseResolver } from "@yume-chan/async";
 export class AutoResetEvent {
     #set;
     #queue = [];

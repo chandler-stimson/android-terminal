@@ -1,5 +1,5 @@
-import { BufferedReadableStream } from "/data/window/resources/@yume-chan/stream-extra/esm/index.js";
-import Struct, { StructEmptyError } from "/data/window/resources/@yume-chan/struct/esm/index.js";
+import { BufferedReadableStream } from "@yume-chan/stream-extra";
+import Struct, { StructEmptyError } from "@yume-chan/struct";
 const Version = new Struct({ littleEndian: true }).uint32("version");
 export const AdbFrameBufferV1 = new Struct({ littleEndian: true })
     .uint32("bpp")

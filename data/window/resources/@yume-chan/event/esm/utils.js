@@ -1,4 +1,4 @@
-import { PromiseResolver } from "/data/window/resources/@yume-chan/async/esm/index.js";
+import { PromiseResolver } from "@yume-chan/async";
 export async function once(event) {
     const resolver = new PromiseResolver();
     const dispose = event(resolver.resolve);

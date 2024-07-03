@@ -22,7 +22,7 @@ function getWrappedReadableStream(wrapper, controller) {
 export class WrapReadableStream extends ReadableStream {
     readable;
     #reader;
-    constructor(wrapper) {
+    constructor(wrapper, strategy) {
         super({
             start: async (controller) => {
                 // `start` is invoked before `ReadableStream`'s constructor finish,
@@ -32,12 +32,6 @@ export class WrapReadableStream extends ReadableStream {
                 await Promise.resolve();
                 this.readable = await getWrappedReadableStream(wrapper, controller);
                 this.#reader = this.readable.getReader();
-            },
-            cancel: async (reason) => {
-                await this.#reader.cancel(reason);
-                if ("cancel" in wrapper) {
-                    await wrapper.cancel?.(reason);
-                }
             },
             pull: async (controller) => {
                 const result = await this.#reader.read();
@@ -51,7 +45,13 @@ export class WrapReadableStream extends ReadableStream {
                     controller.enqueue(result.value);
                 }
             },
-        });
+            cancel: async (reason) => {
+                await this.#reader.cancel(reason);
+                if ("cancel" in wrapper) {
+                    await wrapper.cancel?.(reason);
+                }
+            },
+        }, strategy);
     }
 }
 //# sourceMappingURL=wrap-readable.js.map

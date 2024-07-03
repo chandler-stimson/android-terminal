@@ -1,6 +1,7 @@
-import { PromiseResolver } from "/data/window/resources/@yume-chan/async/esm/index.js";
+import { PromiseResolver } from "@yume-chan/async";
 import { AbortController, ReadableStream } from "./stream.js";
 export class PushReadableStream extends ReadableStream {
+    #zeroHighWaterMarkAllowEnqueue = false;
     /**
      * Create a new `PushReadableStream` from a source.
      *
@@ -12,21 +13,28 @@ export class PushReadableStream extends ReadableStream {
         let waterMarkLow;
         const abortController = new AbortController();
         super({
-            start: (controller) => {
+            start: async (controller) => {
+                await Promise.resolve();
                 const result = source({
                     abortSignal: abortController.signal,
-                    async enqueue(chunk) {
+                    enqueue: async (chunk) => {
                         if (abortController.signal.aborted) {
                             // If the stream is already cancelled,
                             // throw immediately.
-                            throw (abortController.signal.reason ??
-                                new Error("Aborted"));
+                            throw abortController.signal.reason;
                         }
-                        // Only when the stream is errored, `desiredSize` will be `null`.
-                        // But since `null <= 0` is `true`
-                        // (`null <= 0` is evaluated as `!(null > 0)` => `!false` => `true`),
-                        // not handling it will cause a deadlock.
-                        if ((controller.desiredSize ?? 1) <= 0) {
+                        if (controller.desiredSize === null) {
+                            // `desiredSize` being `null` means the stream is in error state,
+                            // `controller.enqueue` will throw an error for us.
+                            controller.enqueue(chunk);
+                            return;
+                        }
+                        if (this.#zeroHighWaterMarkAllowEnqueue) {
+                            this.#zeroHighWaterMarkAllowEnqueue = false;
+                            controller.enqueue(chunk);
+                            return;
+                        }
+                        if (controller.desiredSize <= 0) {
                             waterMarkLow = new PromiseResolver();
                             await waterMarkLow.promise;
                         }
@@ -55,7 +63,13 @@ export class PushReadableStream extends ReadableStream {
                 }
             },
             pull: () => {
-                waterMarkLow?.resolve();
+                if (waterMarkLow) {
+                    waterMarkLow.resolve();
+                    return;
+                }
+                if (strategy?.highWaterMark === 0) {
+                    this.#zeroHighWaterMarkAllowEnqueue = true;
+                }
             },
             cancel: (reason) => {
                 abortController.abort(reason);

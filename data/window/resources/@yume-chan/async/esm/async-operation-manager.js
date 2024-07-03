@@ -1,4 +1,4 @@
-import { PromiseResolver } from "./promise-resolver.js";
+import { PromiseResolver } from "./promise-resolver";
 var AsyncOperationManager = (function () {
     function AsyncOperationManager(startId) {
         if (startId === void 0) { startId = 0; }

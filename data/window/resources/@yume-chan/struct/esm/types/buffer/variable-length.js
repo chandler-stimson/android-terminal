@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { StructFieldValue } from "../../basic/index.js";
 import { BufferLikeFieldDefinition, BufferLikeFieldValue } from "./base.js";
 export class VariableLengthBufferLikeFieldDefinition extends BufferLikeFieldDefinition {
@@ -21,7 +23,7 @@ export class VariableLengthBufferLikeStructFieldValue extends BufferLikeFieldVal
     constructor(definition, options, struct, value, array) {
         super(definition, options, struct, value, array);
         if (array) {
-            this.length = array.byteLength;
+            this.length = array.length;
         }
         // Patch the associated length field.
         const lengthField = this.definition.options.lengthField;
@@ -29,13 +31,22 @@ export class VariableLengthBufferLikeStructFieldValue extends BufferLikeFieldVal
         this.lengthFieldValue = new VariableLengthBufferLikeFieldLengthValue(originalValue, this);
         struct.set(lengthField, this.lengthFieldValue);
     }
+    #tryGetSize() {
+        const length = this.definition.converter.getSize(this.value);
+        if (length !== undefined && length < 0) {
+            throw new Error("Invalid length");
+        }
+        return length;
+    }
     getSize() {
         if (this.length === undefined) {
-            this.length = this.definition.type.getSize(this.value);
-            if (this.length === -1) {
-                this.array = this.definition.type.toBuffer(this.value);
-                this.length = this.array.byteLength;
-            }
+            // first try to get the size from the converter
+            this.length = this.#tryGetSize();
+        }
+        if (this.length === undefined) {
+            // The converter doesn't know the size, so convert the value to a buffer to get its size
+            this.array = this.definition.converter.toBuffer(this.value);
+            this.length = this.array.length;
         }
         return this.length;
     }
@@ -46,21 +57,21 @@ export class VariableLengthBufferLikeStructFieldValue extends BufferLikeFieldVal
     }
 }
 export class VariableLengthBufferLikeFieldLengthValue extends StructFieldValue {
-    originalField;
-    bufferField;
-    constructor(originalField, arrayBufferField) {
-        super(originalField.definition, originalField.options, originalField.struct, 0);
-        this.originalField = originalField;
-        this.bufferField = arrayBufferField;
+    originalValue;
+    bufferValue;
+    constructor(originalValue, bufferValue) {
+        super(originalValue.definition, originalValue.options, originalValue.struct, 0);
+        this.originalValue = originalValue;
+        this.bufferValue = bufferValue;
     }
     getSize() {
-        return this.originalField.getSize();
+        return this.originalValue.getSize();
     }
     get() {
-        let value = this.bufferField.getSize();
-        const originalValue = this.originalField.get();
+        let value = this.bufferValue.getSize();
+        const originalValue = this.originalValue.get();
         if (typeof originalValue === "string") {
-            value = value.toString(this.bufferField.definition.options.lengthFieldRadix ?? 10);
+            value = value.toString(this.bufferValue.definition.options.lengthFieldRadix ?? 10);
         }
         return value;
     }
@@ -68,9 +79,9 @@ export class VariableLengthBufferLikeFieldLengthValue extends StructFieldValue {
         // Ignore setting
         // It will always be in sync with the buffer size
     }
-    serialize(dataView, offset) {
-        this.originalField.set(this.get());
-        this.originalField.serialize(dataView, offset);
+    serialize(dataView, array, offset) {
+        this.originalValue.set(this.get());
+        this.originalValue.serialize(dataView, array, offset);
     }
 }
 //# sourceMappingURL=variable-length.js.map

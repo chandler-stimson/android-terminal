@@ -1,4 +1,4 @@
-import { BufferCombiner, BufferedReadableStream, ConsumableWritableStream, } from "/data/window/resources/@yume-chan/stream-extra/esm/index.js";
+import { BufferCombiner, BufferedReadableStream, Consumable, } from "@yume-chan/stream-extra";
 import { AutoResetEvent } from "../../utils/index.js";
 export class AdbSyncSocketLocked {
     #writer;
@@ -15,15 +15,16 @@ export class AdbSyncSocketLocked {
         this.#socketLock = lock;
         this.#combiner = new BufferCombiner(bufferSize);
     }
-    async #writeInnerStream(buffer) {
-        await ConsumableWritableStream.write(this.#writer, buffer);
+    async #write(buffer) {
+        // `#combiner` will reuse the buffer, so we need to use the Consumable pattern
+        await Consumable.WritableStream.write(this.#writer, buffer);
     }
     async flush() {
         try {
             await this.#writeLock.wait();
             const buffer = this.#combiner.flush();
             if (buffer) {
-                await this.#writeInnerStream(buffer);
+                await this.#write(buffer);
             }
         }
         finally {
@@ -34,7 +35,7 @@ export class AdbSyncSocketLocked {
         try {
             await this.#writeLock.wait();
             for (const buffer of this.#combiner.push(data)) {
-                await this.#writeInnerStream(buffer);
+                await this.#write(buffer);
             }
         }
         finally {
@@ -42,12 +43,19 @@ export class AdbSyncSocketLocked {
         }
     }
     async readExactly(length) {
+        // The request may still be in the internal buffer.
+        // Call `flush` to send it before starting reading
         await this.flush();
         return await this.#readable.readExactly(length);
     }
     release() {
+        // In theory, the writer shouldn't leave anything in the buffer,
+        // but to be safe, call `flush` to throw away any remaining data.
         this.#combiner.flush();
         this.#socketLock.notifyOne();
+    }
+    async close() {
+        await this.#readable.cancel();
     }
 }
 export class AdbSyncSocket {
@@ -63,6 +71,7 @@ export class AdbSyncSocket {
         return this.#locked;
     }
     async close() {
+        await this.#locked.close();
         await this.#socket.close();
     }
 }

@@ -1,4 +1,4 @@
-import { getBigUint64, setBigUint64, } from "/data/window/resources/@yume-chan/dataview-bigint-polyfill/esm/fallback.js";
+import { getUint64BigEndian, setInt64BigEndian, setInt64LittleEndian, } from "@yume-chan/no-data-view";
 /**
  * Gets the `BigInt` value at the specified byte offset and length from the start of the view. There is
  * no alignment constraint; multi-byte values may be fetched from any offset.
@@ -6,47 +6,41 @@ import { getBigUint64, setBigUint64, } from "/data/window/resources/@yume-chan/d
  * Only supports Big-Endian, because that's what ADB uses.
  * @param byteOffset The place in the buffer at which the value should be retrieved.
  */
-export function getBigUint(dataView, byteOffset, length) {
+export function getBigUint(array, byteOffset, length) {
     let result = 0n;
     // Currently `length` must be a multiplication of 8
     // Support for arbitrary length can be easily added
     for (let i = byteOffset; i < byteOffset + length; i += 8) {
         result <<= 64n;
-        const value = getBigUint64(dataView, i, false);
-        result += value;
+        const value = getUint64BigEndian(array, i);
+        result |= value;
     }
     return result;
 }
 /**
  * Stores an arbitrary-precision positive `BigInt` value at the specified byte offset from the start of the view.
  * @param byteOffset The place in the buffer at which the value should be set.
+ * @param length The number of bytes to set.
  * @param value The value to set.
  * @param littleEndian If `false` or `undefined`, a big-endian value should be written,
  * otherwise a little-endian value should be written.
  */
-export function setBigUint(dataView, byteOffset, value, littleEndian) {
-    const start = byteOffset;
+export function setBigUint(array, byteOffset, length, value, littleEndian) {
     if (littleEndian) {
         while (value > 0n) {
-            setBigUint64(dataView, byteOffset, value, true);
+            setInt64LittleEndian(array, byteOffset, value);
             byteOffset += 8;
             value >>= 64n;
         }
     }
     else {
-        // Because we don't know how long (in bits) the `value` is,
-        // Convert it to an array of `uint64` first.
-        const uint64Array = [];
+        let position = byteOffset + length - 8;
         while (value > 0n) {
-            uint64Array.push(BigInt.asUintN(64, value));
+            setInt64BigEndian(array, position, value);
+            position -= 8;
             value >>= 64n;
         }
-        for (let i = uint64Array.length - 1; i >= 0; i -= 1) {
-            setBigUint64(dataView, byteOffset, uint64Array[i], false);
-            byteOffset += 8;
-        }
     }
-    return byteOffset - start;
 }
 // These values are correct only if
 // modulus length is 2048 and
@@ -71,16 +65,24 @@ const RsaPrivateKeyNLength = 2048 / 8;
 const RsaPrivateKeyDOffset = 303;
 const RsaPrivateKeyDLength = 2048 / 8;
 export function rsaParsePrivateKey(key) {
-    const view = new DataView(key.buffer, key.byteOffset, key.byteLength);
-    const n = getBigUint(view, RsaPrivateKeyNOffset, RsaPrivateKeyNLength);
-    const d = getBigUint(view, RsaPrivateKeyDOffset, RsaPrivateKeyDLength);
+    const n = getBigUint(key, RsaPrivateKeyNOffset, RsaPrivateKeyNLength);
+    const d = getBigUint(key, RsaPrivateKeyDOffset, RsaPrivateKeyDLength);
     return [n, d];
 }
+function nonNegativeMod(m, d) {
+    const r = m % d;
+    if (r > 0) {
+        return r;
+    }
+    return r + (d > 0 ? d : -d);
+}
+// https://en.wikipedia.org/wiki/Modular_multiplicative_inverse
+// Solve for the smallest positive `x` in the equation `a * x ≡ 1 (mod m)`,
+// or in other words, `a * x % m = 1`
 // Taken from https://stackoverflow.com/a/51562038
-// I can't understand, but it does work
 // Only used with numbers smaller than 2^32 so doesn't need BigInt
 export function modInverse(a, m) {
-    a = ((a % m) + m) % m;
+    a = nonNegativeMod(a, m);
     if (!a || m < 2) {
         return NaN; // invalid input
     }
@@ -91,6 +93,7 @@ export function modInverse(a, m) {
         [a, b] = [b, a % b];
         s.push({ a, b });
     }
+    /* istanbul ignore next */
     if (a !== 1) {
         return NaN; // inverse does not exists
     }
@@ -100,27 +103,33 @@ export function modInverse(a, m) {
     for (let i = s.length - 2; i >= 0; i -= 1) {
         [x, y] = [y, x - y * Math.floor(s[i].a / s[i].b)];
     }
-    return ((y % m) + m) % m;
+    return nonNegativeMod(y, m);
 }
+const ModulusLengthInBytes = 2048 / 8;
+const ModulusLengthInWords = ModulusLengthInBytes / 4;
 export function adbGetPublicKeySize() {
-    return 4 + 4 + 2048 / 8 + 2048 / 8 + 4;
+    return 4 + 4 + ModulusLengthInBytes + ModulusLengthInBytes + 4;
 }
 export function adbGeneratePublicKey(privateKey, output) {
-    // Android has its own public key generation algorithm
-    // See https://android.googlesource.com/platform/system/core.git/+/91784040db2b9273687f88d8b95f729d4a61ecc2/libcrypto_utils/android_pubkey.cpp#111
-    // The public key is an array of
+    // cspell: ignore: mincrypt
+    // Android 6 and earlier has its own encryption library called mincrypt
+    // This is the RSA public key format used by mincrypt:
+    // https://android.googlesource.com/platform/system/core/+/bb0c180e62703c2068a1b2c9f8ba6d634bf1553c/include/mincrypt/rsa.h#46
+    // `n0inv` and `rr` are pre-calculated to speed up RSA operations
+    // Android 7 switched its encryption library to BoringSSL, but still keeps the key format:
+    // https://android.googlesource.com/platform/system/core.git/+/91784040db2b9273687f88d8b95f729d4a61ecc2/libcrypto_utils/android_pubkey.cpp#38
+    // Except when reading a key, `n0inv` and `rr` are ignored (they are still populated when generating a key):
+    // https://android.googlesource.com/platform/system/core.git/+/91784040db2b9273687f88d8b95f729d4a61ecc2/libcrypto_utils/android_pubkey.cpp#55
+    // The public key is a struct (in little endian) of:
     //
     // [
     //   modulusLengthInWords, // 32-bit integer, a "word" is 32-bit so it must be 2048 / 8 / 4
-    //                         // Actually the comment in Android source code was wrong
-    //   n0inv,                // 32-bit integer, the modular inverse of (low 32 bits of n)
-    //   modulus,              // n
+    //                         // (the comment in Android source code is incorrect saying "This must be ANDROID_PUBKEY_MODULUS_SIZE")
+    //   n0inv,                // 32-bit integer, the modular inverse of (lower 32 bits of `n`)
+    //   modulus,              // `n`
     //   rr,                   // Montgomery parameter R^2
-    //   exponent,             // 32-bit integer, must be 65537
+    //   exponent,             // 32-bit integer, must be 3 or 65537
     // ]
-    //
-    // (All in little endian)
-    // See https://android.googlesource.com/platform/system/core.git/+/91784040db2b9273687f88d8b95f729d4a61ecc2/libcrypto_utils/android_pubkey.cpp#38
     let outputType;
     const outputLength = adbGetPublicKeySize();
     if (!output) {
@@ -128,30 +137,29 @@ export function adbGeneratePublicKey(privateKey, output) {
         outputType = "Uint8Array";
     }
     else {
-        if (output.byteLength < outputLength) {
-            throw new Error("output buffer is too small");
+        if (output.length < outputLength) {
+            throw new TypeError("output buffer is too small");
         }
         outputType = "number";
     }
-    const outputView = new DataView(output.buffer, output.byteOffset, output.byteLength);
+    const outputView = new DataView(output.buffer, output.byteOffset, output.length);
     let outputOffset = 0;
     // modulusLengthInWords
-    outputView.setUint32(outputOffset, 2048 / 8 / 4, true);
+    outputView.setUint32(outputOffset, ModulusLengthInWords, true);
     outputOffset += 4;
     // extract `n` from private key
     const [n] = rsaParsePrivateKey(privateKey);
     // Calculate `n0inv`
-    // Don't know why need to multiply by -1
-    // Didn't exist in Android codebase
-    const n0inv = modInverse(-Number(BigInt.asUintN(32, n)), 2 ** 32);
-    outputView.setUint32(outputOffset, n0inv, true);
+    const n0inv = -modInverse(Number(n % 2n ** 32n), 2 ** 32);
+    outputView.setInt32(outputOffset, n0inv, true);
     outputOffset += 4;
-    // Write n
-    setBigUint(outputView, outputOffset, n, true);
-    outputOffset += 256;
-    // Calculate rr = (2^(rsa_size)) ^ 2 mod n
+    // Write `n` (a.k.a. `modulus`)
+    setBigUint(output, outputOffset, ModulusLengthInBytes, n, true);
+    outputOffset += ModulusLengthInBytes;
+    // Calculate rr = (2 ** (rsa_size)) ** 2 % n
     const rr = 2n ** 4096n % n;
-    outputOffset += setBigUint(outputView, outputOffset, rr, true);
+    setBigUint(output, outputOffset, ModulusLengthInBytes, rr, true);
+    outputOffset += ModulusLengthInBytes;
     // exponent
     outputView.setUint32(outputOffset, 65537, true);
     outputOffset += 4;
@@ -235,11 +243,10 @@ export function rsaSign(privateKey, data) {
     padded.set(data, index);
     // Encryption
     // signature = padded ** d % n
-    const view = new DataView(padded.buffer);
-    const signature = powMod(getBigUint(view, 0, view.byteLength), d, n);
+    const signature = powMod(getBigUint(padded, 0, padded.length), d, n);
     // `padded` is not used anymore,
     // re-use the buffer to store the result
-    setBigUint(view, 0, signature, false);
+    setBigUint(padded, 0, padded.length, signature, false);
     return padded;
 }
 //# sourceMappingURL=crypto.js.map

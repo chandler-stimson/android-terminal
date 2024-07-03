@@ -1,5 +1,5 @@
 import { ADB_DEFAULT_DEVICE_FILTER, AdbDaemonWebUsbDevice } from "./device.js";
-import { findUsbAlternateInterface, isErrorName } from "./utils.js";
+import { findUsbAlternateInterface, getSerialNumber, isErrorName, } from "./utils.js";
 export class AdbDaemonWebUsbDeviceManager {
     /**
      * Gets the instance of {@link AdbDaemonWebUsbDeviceManager} using browser WebUSB implementation.
@@ -31,15 +31,16 @@ export class AdbDaemonWebUsbDeviceManager {
      * @returns An {@link AdbDaemonWebUsbDevice} instance if the user selected a device,
      * or `undefined` if the user cancelled the device picker.
      */
-    async requestDevice(filters = [ADB_DEFAULT_DEVICE_FILTER]) {
-        if (filters.length === 0) {
+    async requestDevice(options = {}) {
+        if (!options.filters) {
+            options.filters = [ADB_DEFAULT_DEVICE_FILTER];
+        }
+        else if (options.filters.length === 0) {
             throw new TypeError("filters must not be empty");
         }
         try {
-            const device = await this.#usbManager.requestDevice({
-                filters,
-            });
-            return new AdbDaemonWebUsbDevice(device, filters, this.#usbManager);
+            const device = await this.#usbManager.requestDevice(options);
+            return new AdbDaemonWebUsbDevice(device, options.filters, this.#usbManager);
         }
         catch (e) {
             // No device selected
@@ -78,7 +79,7 @@ export class AdbDaemonWebUsbDeviceManager {
                     continue;
                 }
                 if ("serialNumber" in filter &&
-                    device.serialNumber !== filter.serialNumber) {
+                    getSerialNumber(device) !== filter.serialNumber) {
                     continue;
                 }
                 try {

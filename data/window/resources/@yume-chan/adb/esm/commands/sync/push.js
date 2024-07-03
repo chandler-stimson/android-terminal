@@ -1,5 +1,5 @@
-import { AbortController, ConsumableWritableStream, DistributionStream, } from "/data/window/resources/@yume-chan/stream-extra/esm/index.js";
-import Struct, { placeholder } from "/data/window/resources/@yume-chan/struct/esm/index.js";
+import { AbortController, DistributionStream, MaybeConsumable, } from "@yume-chan/stream-extra";
+import Struct, { placeholder } from "@yume-chan/struct";
 import { NOOP } from "../../utils/index.js";
 import { AdbSyncRequestId, adbSyncWriteRequest } from "./request.js";
 import { AdbSyncResponseId, adbSyncReadResponse } from "./response.js";
@@ -11,7 +11,7 @@ async function pipeFileData(locked, file, packetSize, mtime) {
     // allow error response to abort the write.
     const abortController = new AbortController();
     file.pipeThrough(new DistributionStream(packetSize, true))
-        .pipeTo(new ConsumableWritableStream({
+        .pipeTo(new MaybeConsumable.WritableStream({
         write: async (chunk) => {
             await adbSyncWriteRequest(locked, AdbSyncRequestId.Data, chunk);
         },
@@ -49,13 +49,10 @@ export var AdbSyncSendV2Flags;
      * 4
      */
     AdbSyncSendV2Flags[AdbSyncSendV2Flags["Zstd"] = 4] = "Zstd";
-    /**
-     * 0x80000000
-     */
     AdbSyncSendV2Flags[AdbSyncSendV2Flags["DryRun"] = 2147483648] = "DryRun";
 })(AdbSyncSendV2Flags || (AdbSyncSendV2Flags = {}));
 export const AdbSyncSendV2Request = new Struct({ littleEndian: true })
-    .uint32("id", placeholder())
+    .uint32("id")
     .uint32("mode")
     .uint32("flags", placeholder());
 export async function adbSyncPushV2({ socket, filename, file, type = LinuxFileType.File, permission = 0o666, mtime = (Date.now() / 1000) | 0, packetSize = ADB_SYNC_MAX_PACKET_SIZE, dryRun = false, }) {

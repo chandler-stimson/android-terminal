@@ -1,41 +1,36 @@
-import Struct from "/data/window/resources/@yume-chan/struct/esm/index.js";
+import Struct from "@yume-chan/struct";
 import { encodeUtf8 } from "../../utils/index.js";
+import { adbSyncEncodeId } from "./response.js";
 export var AdbSyncRequestId;
 (function (AdbSyncRequestId) {
-    AdbSyncRequestId["List"] = "LIST";
-    AdbSyncRequestId["ListV2"] = "LIS2";
-    AdbSyncRequestId["Send"] = "SEND";
-    AdbSyncRequestId["SendV2"] = "SND2";
-    AdbSyncRequestId["Lstat"] = "STAT";
-    AdbSyncRequestId["Stat"] = "STA2";
-    AdbSyncRequestId["LstatV2"] = "LST2";
-    AdbSyncRequestId["Data"] = "DATA";
-    AdbSyncRequestId["Done"] = "DONE";
-    AdbSyncRequestId["Receive"] = "RECV";
+    AdbSyncRequestId.List = adbSyncEncodeId("LIST");
+    AdbSyncRequestId.ListV2 = adbSyncEncodeId("LIS2");
+    AdbSyncRequestId.Send = adbSyncEncodeId("SEND");
+    AdbSyncRequestId.SendV2 = adbSyncEncodeId("SND2");
+    AdbSyncRequestId.Lstat = adbSyncEncodeId("STAT");
+    AdbSyncRequestId.Stat = adbSyncEncodeId("STA2");
+    AdbSyncRequestId.LstatV2 = adbSyncEncodeId("LST2");
+    AdbSyncRequestId.Data = adbSyncEncodeId("DATA");
+    AdbSyncRequestId.Done = adbSyncEncodeId("DONE");
+    AdbSyncRequestId.Receive = adbSyncEncodeId("RECV");
 })(AdbSyncRequestId || (AdbSyncRequestId = {}));
 export const AdbSyncNumberRequest = new Struct({ littleEndian: true })
-    .string("id", { length: 4 })
+    .uint32("id")
     .uint32("arg");
-export const AdbSyncDataRequest = new Struct({ littleEndian: true })
-    .concat(AdbSyncNumberRequest)
-    .uint8Array("data", { lengthField: "arg" });
 export async function adbSyncWriteRequest(writable, id, value) {
+    if (typeof id === "string") {
+        id = adbSyncEncodeId(id);
+    }
     if (typeof value === "number") {
-        const buffer = AdbSyncNumberRequest.serialize({
-            id,
-            arg: value,
-        });
-        await writable.write(buffer);
+        await writable.write(AdbSyncNumberRequest.serialize({ id, arg: value }));
+        return;
     }
-    else if (typeof value === "string") {
-        // Let `writable` buffer writes
-        const buffer = encodeUtf8(value);
-        await writable.write(AdbSyncNumberRequest.serialize({ id, arg: buffer.byteLength }));
-        await writable.write(buffer);
+    if (typeof value === "string") {
+        value = encodeUtf8(value);
     }
-    else {
-        await writable.write(AdbSyncNumberRequest.serialize({ id, arg: value.byteLength }));
-        await writable.write(value);
-    }
+    // `writable` is buffered, it copies inputs to an internal buffer,
+    // so don't concatenate headers and data here, that will be an unnecessary copy.
+    await writable.write(AdbSyncNumberRequest.serialize({ id, arg: value.length }));
+    await writable.write(value);
 }
 //# sourceMappingURL=request.js.map

@@ -1,4 +1,4 @@
-import Struct, { placeholder } from "/data/window/resources/@yume-chan/struct/esm/index.js";
+import Struct, { placeholder } from "@yume-chan/struct";
 import { AdbSyncRequestId, adbSyncWriteRequest } from "./request.js";
 import { AdbSyncResponseId, adbSyncReadResponse } from "./response.js";
 // https://github.com/python/cpython/blob/4e581d64b8aff3e2eda99b12f080c877bb78dfca/Lib/stat.py#L36
@@ -13,7 +13,6 @@ export const AdbSyncLstatResponse = new Struct({ littleEndian: true })
     .int32("size")
     .int32("mtime")
     .extra({
-    id: AdbSyncResponseId.Lstat,
     get type() {
         return (this.mode >> 12);
     },
@@ -63,7 +62,6 @@ export const AdbSyncStatResponse = new Struct({ littleEndian: true })
     .uint64("mtime")
     .uint64("ctime")
     .extra({
-    id: AdbSyncResponseId.Stat,
     get type() {
         return (this.mode >> 12);
     },

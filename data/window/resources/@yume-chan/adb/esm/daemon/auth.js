@@ -1,5 +1,5 @@
-import { PromiseResolver } from "/data/window/resources/@yume-chan/async/esm/index.js";
-import { EMPTY_UINT8_ARRAY } from "/data/window/resources/@yume-chan/struct/esm/index.js";
+import { PromiseResolver } from "@yume-chan/async";
+import { EMPTY_UINT8_ARRAY } from "@yume-chan/struct";
 import { calculateBase64EncodedLength, encodeBase64, encodeUtf8, } from "../utils/index.js";
 import { adbGeneratePublicKey, adbGetPublicKeySize, rsaSign, } from "./crypto.js";
 import { AdbCommand } from "./packet.js";
@@ -20,7 +20,7 @@ export const AdbSignatureAuthenticator = async function* (credentialStore, getNe
             command: AdbCommand.Auth,
             arg0: AdbAuthType.Signature,
             arg1: 0,
-            payload: new Uint8Array(signature),
+            payload: signature,
         };
     }
 };

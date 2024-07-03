@@ -1,4 +1,4 @@
-/* global state */
+/* global state, terminals */
 
 // Documentation
 // https://tango-adb.github.io/docs/
@@ -29,7 +29,6 @@ document.getElementById('connect').addEventListener('click', async ({target}) =>
       credentialStore
     });
     document.body.classList.add('ready');
-    state(true);
 
     const adb = new Adb(transport);
 
@@ -42,6 +41,8 @@ document.getElementById('connect').addEventListener('click', async ({target}) =>
       }
       // process
       const ps = await adb.subprocess.shell();
+      terminals.add(terminal);
+      state();
       ps.stdout.pipeTo(
         new WritableStream({
           write(chunk) {
@@ -49,8 +50,9 @@ document.getElementById('connect').addEventListener('click', async ({target}) =>
           }
         })
       ).then(() => {
-        state(false);
         terminal.dispose();
+        terminals.delete(terminal);
+        state();
       });
 
       const writer = ps.stdin.getWriter();
@@ -167,7 +169,7 @@ document.getElementById('connect').addEventListener('click', async ({target}) =>
   catch (e) {
     target.disabled = false;
     document.body.classList.remove('ready');
-    state(false);
+    state();
     console.error(e);
     toast.notify(e.message, 'error', 10000);
   }

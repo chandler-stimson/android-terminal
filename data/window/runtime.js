@@ -1,6 +1,8 @@
-self.state = active => chrome.runtime.sendMessage({
+const terminals = new Set();
+
+self.state = () => chrome.runtime.sendMessage({
   cmd: 'state',
-  active
+  active: terminals.size > 0
 });
 
 chrome.runtime.onMessage.addListener((request, sender, response) => {

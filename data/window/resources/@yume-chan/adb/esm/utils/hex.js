@@ -1,26 +1,26 @@
 function hexCharToNumber(char) {
     if (char < 48) {
-        throw new Error(`Invalid hex char ${char}`);
+        throw new TypeError(`Invalid hex char ${char}`);
     }
     if (char < 58) {
         // 0-9
         return char - 48;
     }
     if (char < 65) {
-        throw new Error(`Invalid hex char ${char}`);
+        throw new TypeError(`Invalid hex char ${char}`);
     }
     if (char < 71) {
         // A-F
         return char - 55;
     }
     if (char < 97) {
-        throw new Error(`Invalid hex char ${char}`);
+        throw new TypeError(`Invalid hex char ${char}`);
     }
     if (char < 103) {
         // a-f
         return char - 87;
     }
-    throw new Error(`Invalid hex char ${char}`);
+    throw new TypeError(`Invalid hex char ${char}`);
 }
 // It's 22x faster than converting `data` to string then `Number.parseInt`
 // https://jsbench.me/dglha94ozl/1
@@ -31,25 +31,23 @@ export function hexToNumber(data) {
     }
     return result;
 }
-export function numberToHex(value) {
-    const result = new Uint8Array(4);
-    let index = 3;
-    while (index >= 0 && value > 0) {
+export function write4HexDigits(buffer, index, value) {
+    const start = index;
+    index += 3;
+    while (index >= start && value > 0) {
         const digit = value & 0xf;
         value >>= 4;
         if (digit < 10) {
-            result[index] = digit + 48;
+            buffer[index] = digit + 48; // '0'
         }
         else {
-            result[index] = digit + 87;
+            buffer[index] = digit + 87; // 'a' - 10
         }
         index -= 1;
     }
-    while (index >= 0) {
-        // '0'
-        result[index] = 48;
+    while (index >= start) {
+        buffer[index] = 48; // '0'
         index -= 1;
     }
-    return result;
 }
 //# sourceMappingURL=hex.js.map

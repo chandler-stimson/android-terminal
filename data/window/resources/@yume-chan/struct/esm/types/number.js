@@ -1,9 +1,9 @@
+import { getInt16, getInt32, getInt8, getUint16, getUint32, } from "@yume-chan/no-data-view";
 import { StructFieldDefinition, StructFieldValue } from "../basic/index.js";
 import { SyncPromise } from "../sync-promise.js";
-// eslint-disable-next-line @typescript-eslint/no-namespace
-export var NumberFieldType;
-(function (NumberFieldType) {
-    NumberFieldType.Uint8 = {
+export var NumberFieldVariant;
+(function (NumberFieldVariant) {
+    NumberFieldVariant.Uint8 = {
         signed: false,
         size: 1,
         deserialize(array) {
@@ -13,82 +13,69 @@ export var NumberFieldType;
             dataView.setUint8(offset, value);
         },
     };
-    NumberFieldType.Int8 = {
+    NumberFieldVariant.Int8 = {
         signed: true,
         size: 1,
         deserialize(array) {
-            const value = NumberFieldType.Uint8.deserialize(array, false);
-            return (value << 24) >> 24;
+            return getInt8(array, 0);
         },
         serialize(dataView, offset, value) {
             dataView.setInt8(offset, value);
         },
     };
-    NumberFieldType.Uint16 = {
+    NumberFieldVariant.Uint16 = {
         signed: false,
         size: 2,
         deserialize(array, littleEndian) {
             // PERF: Creating many `DataView`s over small buffers is 90% slower
             // than this. Even if the `DataView` is cached, `DataView#getUint16`
             // is still 1% slower than this.
-            const a = (array[1] << 8) | array[0];
-            const b = (array[0] << 8) | array[1];
-            return littleEndian ? a : b;
+            return getUint16(array, 0, littleEndian);
         },
         serialize(dataView, offset, value, littleEndian) {
             dataView.setUint16(offset, value, littleEndian);
         },
     };
-    NumberFieldType.Int16 = {
+    NumberFieldVariant.Int16 = {
         signed: true,
         size: 2,
         deserialize(array, littleEndian) {
-            const value = NumberFieldType.Uint16.deserialize(array, littleEndian);
-            return (value << 16) >> 16;
+            return getInt16(array, 0, littleEndian);
         },
         serialize(dataView, offset, value, littleEndian) {
             dataView.setInt16(offset, value, littleEndian);
         },
     };
-    NumberFieldType.Uint32 = {
+    NumberFieldVariant.Uint32 = {
         signed: false,
         size: 4,
         deserialize(array, littleEndian) {
-            const value = NumberFieldType.Int32.deserialize(array, littleEndian);
-            return value >>> 0;
+            return getUint32(array, 0, littleEndian);
         },
         serialize(dataView, offset, value, littleEndian) {
             dataView.setUint32(offset, value, littleEndian);
         },
     };
-    NumberFieldType.Int32 = {
+    NumberFieldVariant.Int32 = {
         signed: true,
         size: 4,
         deserialize(array, littleEndian) {
-            const a = (array[3] << 24) |
-                (array[2] << 16) |
-                (array[1] << 8) |
-                array[0];
-            const b = (array[0] << 24) |
-                (array[1] << 16) |
-                (array[2] << 8) |
-                array[3];
-            return littleEndian ? a : b;
+            return getInt32(array, 0, littleEndian);
         },
         serialize(dataView, offset, value, littleEndian) {
             dataView.setInt32(offset, value, littleEndian);
         },
     };
-})(NumberFieldType || (NumberFieldType = {}));
+})(NumberFieldVariant || (NumberFieldVariant = {}));
 export class NumberFieldDefinition extends StructFieldDefinition {
-    type;
-    constructor(type, typescriptType) {
+    variant;
+    constructor(variant, typescriptType) {
         void typescriptType;
         super();
-        this.type = type;
+        this.variant = variant;
     }
     getSize() {
-        return this.type.size;
+        return this.variant.size;
     }
     create(options, struct, value) {
         return new NumberFieldValue(this, options, struct, value);
@@ -98,15 +85,15 @@ export class NumberFieldDefinition extends StructFieldDefinition {
             return stream.readExactly(this.getSize());
         })
             .then((array) => {
-            const value = this.type.deserialize(array, options.littleEndian);
+            const value = this.variant.deserialize(array, options.littleEndian);
             return this.create(options, struct, value);
         })
             .valueOrPromise();
     }
 }
 export class NumberFieldValue extends StructFieldValue {
-    serialize(dataView, offset) {
-        this.definition.type.serialize(dataView, offset, this.value, this.options.littleEndian);
+    serialize(dataView, array, offset) {
+        this.definition.variant.serialize(dataView, offset, this.value, this.options.littleEndian);
     }
 }
 //# sourceMappingURL=number.js.map

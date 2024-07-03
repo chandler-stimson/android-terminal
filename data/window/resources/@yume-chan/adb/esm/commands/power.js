@@ -31,11 +31,12 @@ export class AdbPower extends AdbCommandBase {
         return this.adb.subprocess.spawnAndWaitLegacy(["reboot", "-p"]);
     }
     powerButton(longPress = false) {
-        return this.adb.subprocess.spawnAndWaitLegacy([
-            "input",
-            "keyevent",
-            longPress ? "--longpress POWER" : "POWER",
-        ]);
+        const args = ["input", "keyevent"];
+        if (longPress) {
+            args.push("--longpress");
+        }
+        args.push("POWER");
+        return this.adb.subprocess.spawnAndWaitLegacy(args);
     }
     /**
      * Reboot to Samsung Odin download mode.

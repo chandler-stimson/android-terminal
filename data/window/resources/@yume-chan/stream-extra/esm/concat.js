@@ -1,4 +1,5 @@
-import { PromiseResolver } from "/data/window/resources/@yume-chan/async/esm/index.js";
+import { PromiseResolver } from "@yume-chan/async";
+import { EMPTY_UINT8_ARRAY } from "@yume-chan/struct";
 import { ReadableStream, WritableStream } from "./stream.js";
 // `TransformStream` only calls its `source.flush` method when its `readable` is being read.
 // If the user want to use the `Promise` interface, the `flush` method will never be called,
@@ -61,9 +62,10 @@ export class ConcatStringStream {
  * A `TransformStream` that concatenates `Uint8Array`s.
  *
  * If you want to decode the result as string,
- * prefer `.pipeThrough(new DecodeUtf8Stream()).pipeThrough(new ConcatStringStream())`,
- * than `.pipeThough(new ConcatBufferStream()).pipeThrough(new DecodeUtf8Stream())`,
- * because concatenating strings is faster than concatenating `Uint8Array`s.
+ * prefer `.pipeThrough(new TextDecoderStream()).pipeThrough(new ConcatStringStream())`,
+ * than `.pipeThough(new ConcatBufferStream()).pipeThrough(new TextDecoderStream())`,
+ * because of JavaScript engine optimizations,
+ * concatenating strings is faster than concatenating `Uint8Array`s.
  */
 export class ConcatBufferStream {
     #segments = [];
@@ -77,7 +79,7 @@ export class ConcatBufferStream {
             let offset = 0;
             switch (this.#segments.length) {
                 case 0:
-                    result = new Uint8Array(0);
+                    result = EMPTY_UINT8_ARRAY;
                     break;
                 case 1:
                     result = this.#segments[0];
